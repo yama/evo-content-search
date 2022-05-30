@@ -1,0 +1,8 @@
+.paginate span {border:1px solid #ccc; padding:5px 10px;}
+.paginate span.prev {margin-right:10px;}
+.paginate span.next {margin-left:10px;}
+.result {margin-bottom:20px;}
+.highlight {border-radius:8px;padding:3px;background-color:#ceffa0;}
+.inactive {color:#999;}
+.current {background-color:#ddd;}
+.admin-widget span {border:1px solid #f00;background-color:#fff4db;}

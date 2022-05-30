@@ -1,0 +1,13 @@
+<form action="[+request_uri+]" >
+    <input type="text" name="keyword" value="[+keyword+]">
+    <button type="submit">検索</button><br>
+    <label>
+        <input type="radio" name="orderby" value="rel" [+orderby.rel.checked+]>
+        関連度順
+    </label>
+    <label>
+        <input type="radio" name="orderby" value="date" [+orderby.date.checked+]>
+        更新日順
+    </label>
+    [+admin-widget+]
+</form>
