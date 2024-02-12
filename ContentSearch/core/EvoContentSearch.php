@@ -2,8 +2,8 @@
 
 class EvoContentSearch
 {
+    private $saveIndex;
     protected $config = [];
-    private $keyword;
     private $request;
     private $limit;
     private $results;
@@ -12,89 +12,94 @@ class EvoContentSearch
     private $time;
     private $mode;
     private $current_base_url;
+    private $form;
+    private $orderby;
+    private $paginate;
+    private $keyword;
 
     public function __construct() {
+        $this->keyword = $this->treatedKeyword(getv('keyword'));
         $this->current_base_url = serverv('query_string')
             ? strstr(serverv('request_uri'), '?', true)
             : serverv('request_uri')
         ;
         $this->config = $this->loadConfig();
+        include_once __DIR__ . '/save-index.class.php';
+        $this->saveIndex = new csIndex();
     }
 
     private function loadConfig() {
-        $config = include __DIR__ . '/config/config.php';
+        $defaultConfig = include $this->themePath() . '/_default/config.php';
         if(!event()->params) {
-            return $config;
+            return $defaultConfig;
         }
 
-        $app_config_path = $this->appPath() . event()->params['theme'].'/config.php';
-        if(!event()->params['theme'] || !is_file($app_config_path)) {
-            return $this->array_merge($config, event()->params);
+        $themeConfigPath = $this->themePath() . event()->params['theme'].'/config.php';
+        if(!event()->params['theme'] || !is_file($themeConfigPath)) {
+            return $this->array_merge($defaultConfig, event()->params);
         }
 
-        $app_config = include $app_config_path;
-        if (!$app_config) {
-            return $this->array_merge($config, event()->params);
+        $themeConfig = include $themeConfigPath;
+        if (!$themeConfig) {
+            return $this->array_merge($defaultConfig, event()->params);
         }
         foreach (['css', 'tplForm', 'tplResults', 'tplPaginate'] as $k) {
-            if (!isset($app_config[$k])) {
-                $app_config[$k] = null;
+            if (!isset($themeConfig[$k])) {
+                $themeConfig[$k] = null;
             }
         }
 
         return $this->array_merge(
-            $this->array_merge($config, $app_config)
+            $this->array_merge($defaultConfig, $themeConfig)
             , event()->params
         );
     }
 
     public function run() {
-        if(getv('reset') || !$this->tableExists(db()->config['table_prefix'] . 'search_content')) {
+        if(getv('reset') || !db()->tableExists(db()->config['table_prefix'] . 'search_content')) {
             if(evo()->isLoggedIn('manager')) {
                 $this->firstRun();
-                return;
             }
+            return;
         }
         $recent_update = evo()->getConfig('recent_update', globalv('recent_update'));
-        $ds_recent_update = evo()->getConfig('ds_recent_update',0);
+        $cs_recent_update = evo()->getConfig('cs_recent_update',0);
 
-        if($ds_recent_update >= $recent_update && !$this->recentUpdate($ds_recent_update)) {
+        if($cs_recent_update >= $recent_update && !$this->recentUpdate($cs_recent_update)) {
             return;
         }
 
-        include_once __DIR__ . '/save-index.class.php';
-        dsIndex::saveAll(
-            $ds_recent_update,
+        $this->saveIndex->saveAll(
+            $cs_recent_update,
             ['basicAuth' => $this->config('basicAuth')]
         );
-        dsIndex::saveSystemSetting(
-            'ds_recent_update',
+        $this->saveIndex->saveSystemSetting(
+            'cs_recent_update',
             serverv('request_time') + evo()->getConfig('server_offset_time', 0)
         );
         evo()->clearCache('full');
     }
 
     private function firstRun() {
-        include_once __DIR__ . '/save-index.class.php';
-        if(!dsIndex::hasPlugin()) {
-            dsIndex::createPlugin();
+        if(!$this->saveIndex->hasPlugin()) {
+            $this->saveIndex->createPlugin();
         }
-        dsIndex::createTable();
-        dsIndex::saveAll(null, ['basicAuth' => $this->config('basicAuth')]);
-        dsIndex::saveSystemSetting(
-            'ds_recent_update',
+        $this->saveIndex->createTable();
+        $this->saveIndex->saveAll(null, ['basicAuth' => $this->config('basicAuth')]);
+        $this->saveIndex->saveSystemSetting(
+            'cs_recent_update',
             serverv('request_time')  + evo()->getConfig('server_offset_time', 0)
         );
         evo()->clearCache('full');
     }
 
-    private function recentUpdate($ds_recent_update) {
+    private function recentUpdate($cs_recent_update) {
         return db()->getRecordCount(
             db()->select(
                 'id',
-                db()->config['table_prefix'] . 'site_content', [
+                db()->getFullTableName('site_content'), [
                     'published=1 and deleted=0 and searchable=1 and privateweb=0',
-                    'AND editedon > ' . db()->escape($ds_recent_update)
+                    'AND editedon > ' . db()->escape($cs_recent_update)
                 ]
             )
         );
@@ -109,24 +114,14 @@ class EvoContentSearch
         }
         return $str;
     }
-    public function dsBasePath() {
+    public function csBasePath() {
         return dirname(__DIR__) . '/';
     }
-    public function appPath() {
-        return $this->dsBasePath() . 'themes/';
-    }
-    public function tableExists($table_name)
-    {
-        $sql = sprintf(
-            "SHOW TABLES FROM `%s` LIKE '%s'"
-            , trim(db()->config['dbase'], '`')
-            , str_replace('[+prefix+]', db()->config['table_prefix'], $table_name)
-        );
-        return db()->getRecordCount(db()->query($sql)) ? 1 : 0;
+    public function themePath() {
+        return $this->csBasePath() . 'themes/';
     }
 
     public function setProps() {
-        $keyword = $this->keyword();
         $this->orderby = getv('orderby','rel');
         $this->limit = getv(
             'limit',
@@ -137,18 +132,12 @@ class EvoContentSearch
         }
         $this->form = evo()->parseText(
             $this->config('tplForm.wrap'), [
-                'keyword' => $keyword,
+                'keyword' => $this->keyword,
                 'orderby.rel.checked'  => $this->orderby==='rel' ? 'checked' : '',
                 'orderby.date.checked' => $this->orderby==='date' ? 'checked' : '',
                 'limit' => $this->limit,
                 'offset' => getv('offset',0),
-                'admin-widget' => evo()->isLoggedIn('manager') && evo()->config['site_status']
-                    ? evo()->parseText(
-                        $this->config('tplForm.admin-widget'), [
-                            'url' => $this->current_base_url
-                        ]
-                    )
-                    : ''
+                'admin-widget' => $this->adminWidgetMessage()
             ]
         );
 
@@ -158,18 +147,16 @@ class EvoContentSearch
             );
         }
 
-        if(!$keyword) {
+        if(!$this->keyword) {
             return;
         }
 
-        $this->keyword = $keyword;
+        $this->keyword = $this->keyword;
 
-        evo()->setPlaceholder('ds.keyword', $keyword);
-
-        $mode = getv('mode') ?: $this->mode($keyword);
-        $total = $this->total($keyword, $mode);
+        $mode = getv('mode') ?: $this->mode($this->keyword);
+        $total = $this->total($this->keyword, $mode);
         if(!$total && $mode === 'fulltext') {
-            $total = $this->total($keyword, 'like');
+            $total = $this->total($this->keyword, 'like');
             if(!$total) {
                 return;
             }
@@ -181,8 +168,8 @@ class EvoContentSearch
         $this->request = $_GET;
 
         $bt = microtime(true);
-        $this->rows = $keyword
-            ? $this->find($keyword)
+        $this->rows = $this->keyword
+            ? $this->find($this->keyword)
             : null
         ;
 
@@ -203,16 +190,28 @@ class EvoContentSearch
             ? $this->buildPaginate($this->total, $this->limit, getv('offset',0))
             : null
         ;
-        evo()->toPlaceholders([
-            'ds.results'              => $this->results,
-            'ds.results.time'         => $this->time,
-            'ds.results.total'        => $this->total,
-            'ds.keyword'              => $keyword,
-            'ds.form'                 => $this->form,
-            'ds.orderby.rel.checked'  => $this->orderby==='rel' ? 'checked' : '',
-            'ds.orderby.date.checked' => $this->orderby==='date' ? 'checked' : '',
-            'ds.paginate'             => $this->paginate
-        ]);
+        evo()->setPlaceholder(
+            $this->config('placeholder-key'), [
+                'results'  => $this->results,
+                'time'     => $this->time,
+                'total'    => $this->total,
+                'keyword'  => $this->keyword,
+                'form'     => $this->form,
+                'orderby'  => $this->orderby,
+                'paginate' => $this->paginate
+            ]
+        );
+    }
+
+    private function adminWidgetMessage() {
+        if (!evo()->isLoggedIn('manager')) {
+            return '';
+        }
+        return evo()->parseText(
+            $this->config('tplForm.admin-widget'), [
+                'url' => $this->current_base_url
+            ]
+        );
     }
 
     public function set($key, $value) {
@@ -277,9 +276,8 @@ class EvoContentSearch
         }
         $min_token_size = evo()->getConfig('innodb_ft_min_token_size');
         if(!$min_token_size) {
-            include_once __DIR__ . '/save-index.class.php';
-            $min_token_size = dsIndex::tokenMinSize();
-            dsIndex::saveSystemSetting('innodb_ft_min_token_size',$min_token_size);
+            $min_token_size = $this->saveIndex->tokenMinSize();
+            $this->saveIndex->saveSystemSetting('innodb_ft_min_token_size',$min_token_size);
             evo()->clearCache('full');
         }
         if(mb_strlen($keyword) < $min_token_size) {
@@ -302,8 +300,8 @@ class EvoContentSearch
         return db()->select(
             implode(',', $field),
             [
-                db()->config['table_prefix'] . 'search_content stext',
-                'LEFT JOIN ' . db()->config['table_prefix'] . 'site_content content ON content.id=`stext`.doc_id'
+                db()->getFullTableName('search_content') . ' stext',
+                'LEFT JOIN ' . db()->getFullTableName('site_content') . ' content ON content.id=`stext`.doc_id'
             ],
             sprintf(
                 "MATCH (`tokens`) AGAINST (%s)",
@@ -343,8 +341,8 @@ class EvoContentSearch
         }
         return db()->select(
             implode(',', $field), [
-                db()->config['table_prefix'] . 'search_content `stext`',
-                'LEFT JOIN ' . db()->config['table_prefix'] . 'site_content content ON content.id=`stext`.doc_id'
+                db()->getFullTableName('search_content') . ' `stext`',
+                'LEFT JOIN ' . db()->getFullTableName('site_content') . ' content ON content.id=`stext`.doc_id'
             ],
             $this->likeWhere($keyword),
             $this->orderby==='rel' ? 'contains_title DESC, cnt DESC' : 'stext.publishedon DESC',
@@ -360,7 +358,7 @@ class EvoContentSearch
     }
 
     public function buildPaginate($total,$limit,$offset) {
-        if($total <= $limit) {
+        if(!$this->config('paginateAlwaysShowLinks') && $total <= $limit) {
             return null;
         }
         return evo()->parseText(
@@ -486,7 +484,7 @@ class EvoContentSearch
         return db()->getValue(
             db()->select(
                 'count(*) as total',
-                db()->config['table_prefix'] . 'search_content',
+                db()->getFullTableName('search_content'),
                 sprintf(
                     "MATCH (`tokens`) AGAINST (%s)",
                     // "MATCH (tokens) AGAINST ('%s' IN BOOLEAN MODE)",
@@ -499,7 +497,7 @@ class EvoContentSearch
         return db()->getValue(
             db()->select(
                 'count(*) as total',
-                db()->config['table_prefix'] . 'search_content',
+                db()->getFullTableName('search_content'),
                 $this->likeWhere($keyword)
             )
         );
@@ -533,7 +531,7 @@ class EvoContentSearch
         if(!preg_match('/[亜-熙ぁ-んァ-ヶ]/u', mb_substr($text, 0, $this->config('summaryLength')))) {
             return mb_substr($text, 0, $this->config('summaryLength'));
         }
-        $pettern = strpos(evo()->config['manager_language'], 'japanese')===0
+        $pettern = strpos(evo()->getConfig('manager_language'), 'japanese')===0
             ? '/[\s\n\.\!\?\,。、]+/u'
             : '/[\n\.\!\?]+/u'
         ;
@@ -549,37 +547,41 @@ class EvoContentSearch
         );
         $summary = [];
         foreach($_ as $i=>$v) {
-            if(mb_stripos($v, $keyword)!==false) {
-                if(!$i) {
-                    $summary[0] = $v;
-                    continue;
-                }
-                $prev=$i-1;
-                $next=$i+1;
-                if(!isset($summary[$prev])) {
-                    $summary[$prev] = $_[$prev];
-                }
-                if(!isset($summary[$i])) {
-                    $summary[$i] = $v;
-                }
-                if(isset($_[$next])) {
-                    $summary[$next] = $_[$next];
-                }
+            if(mb_stripos($v, $keyword)===false) {
+                continue;
+            }
+            if(!$i) {
+                $summary[0] = $v;
+                continue;
+            }
+            $prev=$i-1;
+            $next=$i+1;
+            if(!isset($summary[$prev])) {
+                $summary[$prev] = $_[$prev];
+            }
+            if(!isset($summary[$i])) {
+                $summary[$i] = $v;
+            }
+            if(isset($_[$next])) {
+                $summary[$next] = $_[$next];
             }
         }
         return mb_substr(
-            implode(' / ', $summary),
+            $summary ? implode(' ', $summary) : $text,
             0,
             $this->config('summaryLength')
         );
     }
-    public function keyword() {
+    public function treatedKeyword($keyword=null) {
+        if (!$keyword) {
+            return '';
+        }
         return hsc(
             preg_replace(
                 '@\s\s+@',
                 ' ',
                 strip_tags(
-                    mb_convert_kana(getv($this->config('keyword')), 'Kas')
+                    mb_convert_kana($keyword, 'Kas')
                 )
             )
         );

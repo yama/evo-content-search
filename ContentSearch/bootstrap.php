@@ -1,32 +1,33 @@
 <?php
-include_once __DIR__ . '/core/functions.php';
-include_once __DIR__ . '/core/EvoContentSearch.php';
+include_once 'define-path.php';
+include_once 'core/functions.php';
+include_once 'core/EvoContentSearch.php';
 
-$ds = new EvoContentSearch();
-$ds->run();
-$ds->setProps();
+$search = new EvoContentSearch();
+$search->run();
+$search->setProps();
 
-if(!$ds->get('keyword')) {
-    return $ds->get('form');
+if(!$search->get('keyword')) {
+    return $search->get('form');
 }
 
-if($ds->config('minChars') && mb_strlen($ds->get('keyword')) < $ds->config('minChars')) {
-    return $ds->get('form') . $ds->config('tplResults.enoughCharResult');
+if($search->config('minChars') && mb_strlen($search->get('keyword')) < $search->config('minChars')) {
+    return $search->get('form') . $search->config('tplResults.enoughCharResult');
 }
-if(!$ds->get('total')) {
-    return $ds->get('form') . $ds->config('tplResults.noResult');
+if(!$search->get('total')) {
+    return $search->get('form') . $search->config('tplResults.noResult');
 }
 
-return $ds->get('form') . evo()->parseText(
-    $ds->config('tplResults.wrap'), [
+return $search->get('form') . evo()->parseText(
+    $search->config('tplResults.wrap'), [
         'info' => evo()->parseText(
-            $ds->config('tplResults.info'), [
-                'total'   => $ds->get('total'),
-                'time'    => $ds->get('time'),
-                'keyword' => $ds->get('keyword')
+            $search->config('tplResults.info'), [
+                'total'   => $search->get('total'),
+                'time'    => $search->get('time'),
+                'keyword' => $search->get('keyword')
             ]
         ),
-        'results' => $ds->get('results'),
-        'paginate' => $ds->get('paginate')
+        'results' => $search->get('results'),
+        'paginate' => $search->get('paginate')
     ]
 );

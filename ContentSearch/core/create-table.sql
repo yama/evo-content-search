@@ -9,4 +9,4 @@ CREATE TABLE `[+prefix+]search_content` (
   PRIMARY KEY (`id`),
   KEY `publishedon` (`publishedon`),
   FULLTEXT KEY `tokens` (`tokens`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='Contains the search content.';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Contains the search content.';

@@ -1,5 +1,6 @@
 <?php
 return [
+    'placeholder-key' => 'ContentSeach',
     'mode' => 'auto', // auto|fulltext|like
     'limit' => 10,
     'summaryLength'=> 200,
@@ -7,15 +8,16 @@ return [
     'keyword' => 'keyword',
     // 'basicAuth' => 'username:password',
     'css'  => file_get_contents(__DIR__ . '/template/style.css'),
+    'paginateAlwaysShowLinks' => false,
     'tplForm' => [
         'wrap'    => file_get_contents(__DIR__ . '/template/form.html'),
-        'admin-widget' => '<div class="admin-widget"><span><a href="[+url+]?reset=index">インデックスを再構築する</a></span></div>'
+        'admin-widget' => file_get_contents(__DIR__ . '/template/admin-widget.html')
     ],
     'tplResults' => [
         'wrap'    => '<div>[+info+][+results+][+paginate+]</div>',
-        'info'    => '<p>「<span class="ajaxSearch_highlight">[+keyword+]</span>」で検索した結果、[+total+]件の記事が見つかりました。[+time+]秒</p>',
+        'info'    => '<p>「<span class="search-highlight">[+keyword+]</span>」で検索した結果、[+total+]件の記事が見つかりました。[+time+]秒</p>',
         'result'  => file_get_contents(__DIR__ . '/template/result.html'),
-        'highlight' => '<span class="ajaxSearch_highlight ajaxSearch_highlight1">[+keyword+]</span>',
+        'highlight' => '<span class="highlighted-keyword">[+keyword+]</span>',
         'noResult' => '<p>記事はありません。</p>',
         'enoughCharResult' => '検索文字数が足りません。'
     ],

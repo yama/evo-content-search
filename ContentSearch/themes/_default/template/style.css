@@ -1,3 +1,13 @@
+.highlighted-keyword {
+    font-weight: bold;
+    background-color: #ddffdd;
+}
+
+.search-result-link {
+    font-weight: bold;
+    font-size: large;
+}
+
 .paginate span {border:1px solid #ccc; padding:5px 10px;}
 .paginate span.prev {margin-right:10px;}
 .paginate span.next {margin-left:10px;}

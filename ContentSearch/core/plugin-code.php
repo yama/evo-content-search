@@ -1,6 +1,6 @@
 // check OnLoadWebDocument
 
-if(empty($_GET['template']) || $_GET['template']!=='blank') {
+if(getv('template') !== 'blank') {
     return;
 }
 

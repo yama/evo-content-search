@@ -1,16 +1,25 @@
 <?php
-class dsIndex {
-    public static function saveAll($ds_recent_update=null, $options=[]) {
+class csIndex {
+    private $bearer_token;
+
+    public function __construct() {
+        if (!evo()->getConfig('site_status')) {
+            $this->bearer_token = bin2hex(random_bytes(64));
+        }
+    }
+
+    public function saveAll($cs_recent_update=null, $options=[]) {
         ini_set('max_execution_time', 600);
         ini_set('default_socket_timeout',600);
+
         $where = [
             'published=1 and deleted=0 and searchable=1 and privateweb=0'
         ];
 
-        if(!$ds_recent_update) {
-            static::createTable();
+        if(!$cs_recent_update) {
+            $this->createTable();
         } else {
-            $where[] = 'AND editedon > ' . db()->escape($ds_recent_update);
+            $where[] = 'AND editedon > ' . db()->escape($cs_recent_update);
         }
 
         if(evo()->documentIdentifier) {
@@ -18,35 +27,50 @@ class dsIndex {
         }
         $rs = db()->select(
             'id,pagetitle,content,publishedon,editedon,searchable',
-            db()->config['table_prefix'] . 'site_content',
+            db()->getFullTableName('site_content'),
             implode(' ', $where)
         );
+
+        if ($this->bearer_token) {
+            evo()->saveBearerToken($this->bearer_token, time() + 60*60*3);
+        }
+
         while($row = db()->getRow($rs)) {
             if(!$row['content']) {
                 continue;
             }
-            static::save(
+            $this->save(
                 $row,
-                static::get_contents(
+                $this->get_contents(
                     evo()->makeUrl($row['id'],'','','full') . '?template=blank',
                     $options
                 )
             );
         }
 
+        evo()->clearCache();
     }
 
-    public static function hasPlugin() {
+    private function treatText($text) {
+        $text = preg_replace(
+            '@・・+@u',
+            '',
+            $text
+        );
+        return $text;
+    }
+
+    public function hasPlugin() {
         return db()->getRecordCount(
             db()->select(
                 'id',
-                db()->config['table_prefix'].'site_plugins',
+                db()->getFullTableName('site_plugins'),
                 "name='DocSearch' AND disabled=0"
             )
         );
     }
 
-    public static function createPlugin() {
+    public function createPlugin() {
         $id = db()->insert(
             [
                 'name' => 'DocSearch',
@@ -55,22 +79,22 @@ class dsIndex {
                     preg_replace(
                         '@^<?php\n*@',
                         '',
-                        file_get_contents(__DIR__ . '/config/template/plugin.php')
+                        file_get_contents(__DIR__ . '/plugin-code.php')
                     )
                 )
             ],
-            db()->config['table_prefix'].'site_plugins'
+            db()->getFullTableName('site_plugins')
         );
         db()->insert(
             [
                 'pluginid' => $id,
                 'evtid' => 91
             ],
-            db()->config['table_prefix'].'site_plugin_events'
+            db()->getFullTableName('site_plugin_events')
         );
     }
 
-    private static function get_contents($url, $options=[])
+    private function get_contents($url, $options=[])
     {
         $ch = curl_init();
         curl_setopt_array(
@@ -79,12 +103,24 @@ class dsIndex {
                 CURLOPT_HEADER => false,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_FAILONERROR => true,
-                CURLOPT_MAXREDIRS => 3
-            ]);
-            if (!empty($options['basicAuth'])) {
-                curl_setopt($ch, CURLOPT_USERPWD, $options['basicAuth']);
-            }
-            if (defined('CURLOPT_AUTOREFERER')) {
+                CURLOPT_MAXREDIRS => 3,
+            ]
+        );
+
+        if (!empty($options['basicAuth'])) {
+            curl_setopt($ch, CURLOPT_USERPWD, $options['basicAuth']);
+        }
+
+        if ($this->bearer_token) {
+            curl_setopt(
+                $ch,
+                CURLOPT_HTTPHEADER, [
+                    'Authorization: Bearer '. $this->bearer_token
+                ]
+            );
+        }
+
+        if (defined('CURLOPT_AUTOREFERER')) {
             curl_setopt($ch, CURLOPT_AUTOREFERER, true);
         }
         if (serverv('HTTP_USER_AGENT')) {
@@ -95,91 +131,9 @@ class dsIndex {
         return $result;
     }
 
-    private static function getTvs($tv_names) {
-        $allfields = static::dbFieldNames();
-        $tvs = [];
-        foreach($tv_names as $tv_name) {
-            $tv_id = array_get($allfields, sprintf('tv.%s.id', $tv_name));
-            if(!$tv_id) {
-                continue;
-            }
-            $rs = db()->select(
-                '*',
-                db()->config['table_prefix'] . 'site_tmplvar_contentvalues',
-                'tmplvarid='. db()->escape($tv_id)
-            );
-            while($row = db()->getRow($rs)) {
-                pr($row);exit;
-                $tvs[$tv_name][$row['contentid']] = $row['value'];
-            }
-        }
-    }
-    private static function fields($fields) {
-        $existsFields = static::dbFieldNames();
-        $rs = [
-            'doc' => [],
-            'tv' => []
-        ];
-        foreach($fields as $k) {
-            if(isset($existsFields['doc'][$k])) {
-                $rs['doc'][] = $k;
-            }
-            if(isset($existsFields['tv'][$k])) {
-                $rs['tv'][] = $k;
-            }
-        }
-        return $rs;
-    }
-
-    private static function dbFieldNames() {
-        static $fields = null;
-        if($fields) {
-            return $fields;
-        }
-        $rs = db()->query(
-            evo()->parseText(
-                'show columns from [+prefix+]site_content', [
-                    'prefix' => db()->config['table_prefix']
-                ]
-            )
-        );
-        $fields = [];
-        while($row = db()->getRow($rs)) {
-            $fields['doc'][$row['Field']] = $row;
-        }
-        $rs = db()->select('*', db()->config['table_prefix'] . 'site_tmplvars');
-        while($row = db()->getRow($rs)) {
-            $fields['tv'][$row['name']] = $row;
-        }
-        return $fields;
-    }
-
-    private static function pathList() {
-        'published=1 and deleted=0 and searchable=1 and privateweb=0';
-        $rs = db()->select(
-            'id,parent',
-            db()->config['table_prefix'] . 'site_content',
-            'published=1 and deleted=0 and searchable=1 and privateweb=0'
-        );
-        $doc = [];
-        while($row = db()->getRow($rs)) {
-            $doc[$row['id']] = $row['parent'];
-        }
-        $path = [];
-        foreach($doc as $id=>$parent) {
-            $path[$id] = static::path(0, $parent, $doc);
-        }
-    }
-
-    private static function path($path=0, $parent, $doc) {
-        if($parent!=0) {
-            static::path($path, $doc[$parent], $doc);
-        }
-        return 0;
-    }
-
-    private static function save($doc, $text) {
-        $plainText = $doc['pagetitle'] . ' ' . static::trimText($text);
+    private function save($doc, $text) {
+        $plainText = $doc['pagetitle'] . ' ' . $this->trimText($text);
+        $plainText = $this->treatText($plainText);
         db()->save(
             [
                 'doc_id' => $doc['id'],
@@ -188,15 +142,15 @@ class dsIndex {
                 'publishedon' => array_get($doc, 'publishedon') ?: array_get($doc, 'editedon', time()),
                 'editedon' => array_get($doc, 'editedon', time()),
                 'tokens' => db()->escape(
-                    static::split_token($plainText)
+                    $this->split_token($plainText)
                 )
             ],
-            db()->config['table_prefix'] . 'search_content',
+            db()->getFullTableName('search_content'),
             'doc_id=' . $doc['id']
         );
     }
 
-    private static function split_token($str) {
+    private function split_token($str) {
 
         preg_match_all(
             '/[一-龠]+|[ぁ-ん]+|[ァ-ヴー]+|[a-zA-Z0-9]+|[ａ-ｚＡ-Ｚ０-９]+/u',
@@ -230,7 +184,7 @@ class dsIndex {
         }
 
         $match_result = array_merge($match_result, $tmp_res1, $tmp_res2);
-        $tokenMinSize = static::tokenMinSize();
+        $tokenMinSize = $this->tokenMinSize();
         foreach($match_result as $i=>$v) {
             if(mb_strlen($v) < $tokenMinSize) {
                 unset($match_result[$i]);
@@ -238,7 +192,7 @@ class dsIndex {
         }
         return implode(' ', $match_result);
 
-        $tokenMinSize = static::tokenMinSize();
+        $tokenMinSize = $this->tokenMinSize();
         $pattern = '/[一-龠]+[ぁ-ん]*|[一-龠]+|[ぁ-ん]+|[ァ-ヴー]+|[a-zA-Z0-9]+|[ａ-ｚＡ-Ｚ０-９]+/u';
         preg_match_all($pattern, $str, $matches);
         $token = [];
@@ -269,7 +223,7 @@ class dsIndex {
         }
         return implode(' ', $token);
     }
-    public static function tokenMinSize() {
+    public function tokenMinSize() {
         $rs = db()->query("SHOW VARIABLES like 'innodb_ft_min_token_size';");
         $row = db()->getRow($rs);
         if(empty($row['Value'])) {
@@ -278,22 +232,22 @@ class dsIndex {
         return $row['Value'];
     }
 
-    private static function trimText($text) {
+    private function trimText($text) {
         return preg_replace(
             '@\s\s+@u',
             ' ',
             trim(
-                static::remove_tags(
+                $this->remove_tags(
                     preg_replace(
                         '@<h[1-6].*?>(.+?)</h[1-6]>@is',
                         '[$0]',
-                        static::zenhan($text)
+                        $this->zenhan($text)
                     )
                 )
             )
         );
     }
-    private static function remove_tags($value, $params = '')
+    private function remove_tags($value, $params = '')
     {
         if (stripos($params, 'style') === false && stripos($value, '</style>') !== false) {
             $value = preg_replace('#<style.*?>.*?</style>#is', '', $value);
@@ -317,7 +271,7 @@ class dsIndex {
             )
         );
     }
-    private static function zenhan($string) {
+    private function zenhan($string) {
         return str_replace(
             '&amp;',
             '&',
@@ -328,26 +282,23 @@ class dsIndex {
         );
     }
 
-    public static function saveSystemSetting($key, $value) {
+    public function saveSystemSetting($key, $value) {
         db()->save(
             [
                 'setting_name' => db()->escape($key),
                 'setting_value' => db()->escape($value)
             ],
-            db()->config['table_prefix'] . 'system_settings',
-            sprintf(
-                "setting_name='%s'",
-                db()->escape($key)
-            )
+            db()->getFullTableName('system_settings'),
+            sprintf("setting_name='%s'", db()->escape($key))
         );
     }
-    public static function createTable() {
+    public function createTable() {
         db()->query('DROP TABLE IF EXISTS '. db()->config['table_prefix']. 'search_content;');
         return db()->query(
             str_replace(
                 '[+prefix+]',
                 db()->config['table_prefix'],
-                file_get_contents(__DIR__ . '/config/template/create-table.sql')
+                file_get_contents(__DIR__ . '/create-table.sql')
             )
         );
     }
