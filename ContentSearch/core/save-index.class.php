@@ -1,11 +1,19 @@
 <?php
 class csIndex {
+    private $pluginName = 'ContentSearch';
+    private $version = '1.0.0';
+    private $config;
     private $bearer_token;
 
-    public function __construct() {
+    public function __construct($config) {
+        $this->config = $config;
         if (!evo()->getConfig('site_status')) {
             $this->bearer_token = bin2hex(random_bytes(64));
         }
+    }
+
+    private function config($key, $default=null) {
+        return array_get($this->config, $key, $default);
     }
 
     public function saveAll($cs_recent_update=null, $options=[]) {
@@ -26,7 +34,7 @@ class csIndex {
             $where[] = 'AND id != ' . db()->escape(evo()->documentIdentifier);
         }
         $rs = db()->select(
-            'id,pagetitle,content,publishedon,editedon,searchable',
+            'id,pagetitle,description,content,publishedon,editedon,searchable',
             db()->getFullTableName('site_content'),
             implode(' ', $where)
         );
@@ -48,15 +56,12 @@ class csIndex {
             );
         }
 
-        evo()->clearCache();
+        evo()->clearCache('full');
     }
 
     private function treatText($text) {
-        $text = preg_replace(
-            '@・・+@u',
-            '',
-            $text
-        );
+        $text = preg_replace('@・・+@u', '', $text);
+        $text = str_replace("\n", ' ', $text);
         return $text;
     }
 
@@ -65,7 +70,10 @@ class csIndex {
             db()->select(
                 'id',
                 db()->getFullTableName('site_plugins'),
-                "name='DocSearch' AND disabled=0"
+                sprintf(
+                    "name='%s' AND disabled=0",
+                    db()->escape($this->pluginName)
+                )
             )
         );
     }
@@ -73,8 +81,8 @@ class csIndex {
     public function createPlugin() {
         $id = db()->insert(
             [
-                'name' => 'DocSearch',
-                'description' => '@version 1.0.0',
+                'name' => db()->escape($this->pluginName),
+                'description' => '@version ' . $this->version . "\n" . 'Search plugin for site_content',
                 'plugincode' => db()->escape(
                     preg_replace(
                         '@^<?php\n*@',
@@ -132,8 +140,14 @@ class csIndex {
     }
 
     private function save($doc, $text) {
-        $plainText = $doc['pagetitle'] . ' ' . $this->trimText($text);
-        $plainText = $this->treatText($plainText);
+        $content = [];
+        if ($this->config('additionalKeywordField')) {
+            $content[] = $this->addKeywords($this->config('additionalKeywordField'), $doc['id']);
+        }
+        $content[] = $doc['pagetitle'];
+        $content[] = $doc['description'];
+        $content[] = $this->trimText($text);
+        $plainText = $this->treatText(implode(' ', $content));
         db()->save(
             [
                 'doc_id' => $doc['id'],
@@ -143,11 +157,40 @@ class csIndex {
                 'editedon' => array_get($doc, 'editedon', time()),
                 'tokens' => db()->escape(
                     $this->split_token($plainText)
-                )
+                ),
             ],
             db()->getFullTableName('search_content'),
             'doc_id=' . $doc['id']
         );
+    }
+
+    private function addKeywords($fieldName, $docid) {
+        $keywords = $this->getField($fieldName, $docid);
+        if (!$keywords) {
+            return '';
+        }
+        $keywords = preg_split('/[\n|\s|,]+/', $keywords);
+        foreach ($keywords as &$keyword) {
+            $keyword = sprintf('[%s]', $keyword);
+        }
+        return implode(' ', $keywords);
+    }
+
+    private function getField($key, $docid) {
+        $doc = evo()->getDocumentObject('id', $docid);
+        if (!isset($doc[$key])) {
+            return '';
+        }
+        if (!is_array($doc[$key])) {
+            return $doc[$key];
+        }
+        if (isset($doc[$key]['value'])) {
+            return $doc[$key]['value'];
+        }
+        if (isset($doc[$key][2])) {
+            return $doc[$key][2];
+        }
+        return '';
     }
 
     private function split_token($str) {

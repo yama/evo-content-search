@@ -7,14 +7,19 @@ $search = new EvoContentSearch();
 $search->run();
 $search->setProps();
 
-if(!$search->get('keyword')) {
+if (!$search->config('returnResponse')) {
+    return '';
+}
+
+if (!$search->get('keyword')) {
     return $search->get('form');
 }
 
-if($search->config('minChars') && mb_strlen($search->get('keyword')) < $search->config('minChars')) {
+if ($search->config('minChars') && mb_strlen($search->get('keyword')) < $search->config('minChars')) {
     return $search->get('form') . $search->config('tplResults.enoughCharResult');
 }
-if(!$search->get('total')) {
+
+if (!$search->get('total')) {
     return $search->get('form') . $search->config('tplResults.noResult');
 }
 

@@ -292,28 +292,7 @@ if (!function_exists('doc')) {
             $docObject = evo()->getDocumentObject('id', evo()->documentIdentifier);
             $doc = &$docObject;
         }
-        if (strpos($key, '*') === 0) {
-            $value = $default;
-            $doc[substr($key, 1)] = $value;
-            return $value;
-        }
-        if (str_contains($key, '@parent')) {
-            $a = evo()->getDocumentObject('id', doc('parent'));
-            $key = str_replace('@parent', '', $key);
-        } elseif (evo()->isFrontEnd()) {
-            $a = evo()->documentObject;
-        } else {
-            $a = $doc;
-        }
-        if (str_contains($key, '|hsc')) {
-            return hsc(
-                array_get(
-                    $a,
-                    str_replace('|hsc', '', $key, $default)
-                )
-            );
-        }
-        return array_get($a, $key, $default);
+        return array_get($doc, $key, $default);
     }
 }
 

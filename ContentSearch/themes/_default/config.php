@@ -1,5 +1,6 @@
 <?php
 return [
+    'returnResponse' => true,
     'placeholder-key' => 'ContentSeach',
     'mode' => 'auto', // auto|fulltext|like
     'limit' => 10,
@@ -8,7 +9,8 @@ return [
     'keyword' => 'keyword',
     // 'basicAuth' => 'username:password',
     'css'  => file_get_contents(__DIR__ . '/template/style.css'),
-    'paginateAlwaysShowLinks' => false,
+    'additionalKeywordField' => '',
+    'paginateAlwaysShow' => false,
     'tplForm' => [
         'wrap'    => file_get_contents(__DIR__ . '/template/form.html'),
         'admin-widget' => file_get_contents(__DIR__ . '/template/admin-widget.html')
@@ -22,7 +24,7 @@ return [
         'enoughCharResult' => '検索文字数が足りません。'
     ],
     'tplPaginate' => [
-        'wrap'         => '<div class="paginate">[+prev+][+links+][+next+]</div>',
+        'wrap'         => '<div class="paginate">[+prev+][+pages+][+next+]</div>',
         'prev'         => '<span class="prev"><a href="[+prev-link+]">前へ</a></span>',
         'linked-item'  => '<span><a href="[+url+]">[+num+]</a></span>',
         'current-item' => '<span class="current">[+num+]</span>',

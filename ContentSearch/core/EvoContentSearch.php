@@ -2,8 +2,9 @@
 
 class EvoContentSearch
 {
+    private $keyword;
+    private $config = [];
     private $saveIndex;
-    protected $config = [];
     private $request;
     private $limit;
     private $results;
@@ -15,17 +16,17 @@ class EvoContentSearch
     private $form;
     private $orderby;
     private $paginate;
-    private $keyword;
 
     public function __construct() {
+        include_once __DIR__ . '/save-index.class.php';
+        $this->saveIndex = new csIndex($this->config);
+
         $this->keyword = $this->treatedKeyword(getv('keyword'));
         $this->current_base_url = serverv('query_string')
             ? strstr(serverv('request_uri'), '?', true)
             : serverv('request_uri')
         ;
         $this->config = $this->loadConfig();
-        include_once __DIR__ . '/save-index.class.php';
-        $this->saveIndex = new csIndex();
     }
 
     private function loadConfig() {
@@ -123,13 +124,7 @@ class EvoContentSearch
 
     public function setProps() {
         $this->orderby = getv('orderby','rel');
-        $this->limit = getv(
-            'limit',
-            $this->config('limit',10)
-        );
-        if(!$this->limit) {
-            $this->limit = $this->config('limit',10);
-        }
+        $this->limit = getv('limit') ?: $this->config('limit',10);
         $this->form = evo()->parseText(
             $this->config('tplForm.wrap'), [
                 'keyword' => $this->keyword,
@@ -150,8 +145,6 @@ class EvoContentSearch
         if(!$this->keyword) {
             return;
         }
-
-        $this->keyword = $this->keyword;
 
         $mode = getv('mode') ?: $this->mode($this->keyword);
         $total = $this->total($this->keyword, $mode);
@@ -294,7 +287,7 @@ class EvoContentSearch
             )
         ];
         if($this->orderby==='rel') {
-            $field[] = $this->pagetitleScore($keyword);
+            $field[] = $this->generateScore($keyword);
         }
 
         return db()->select(
@@ -337,7 +330,7 @@ class EvoContentSearch
             )
         ];
         if($this->orderby==='rel') {
-            $field[] = $this->pagetitleScore($keyword);
+            $field[] = $this->generateScore($keyword);
         }
         return db()->select(
             implode(',', $field), [
@@ -350,7 +343,7 @@ class EvoContentSearch
         );
     }
 
-    private function pagetitleScore ($keyword) {
+    private function generateScore ($keyword) {
         return evo()->parseText(
             "CASE WHEN stext.pagetitle LIKE '%[+keyword+]%' THEN 2 ELSE 1 END as contains_title",
             ['keyword'=>$keyword]
@@ -358,14 +351,14 @@ class EvoContentSearch
     }
 
     public function buildPaginate($total,$limit,$offset) {
-        if(!$this->config('paginateAlwaysShowLinks') && $total <= $limit) {
+        if(!$this->config('paginateAlwaysShow') && $total <= $limit) {
             return null;
         }
         return evo()->parseText(
             $this->config('tplPaginate.wrap'),
             [
                 'prev' => $this->buildPaginatePrev($limit,$offset),
-                'links' => $this->buildPaginateLinks($total,$limit),
+                'pages' => $this->buildPaginatePages($total,$limit),
                 'next' => $this->buildPaginateNext($total,$limit,$offset)
             ]
         );
@@ -397,7 +390,7 @@ class EvoContentSearch
         return $this->current_base_url . '?' . $query_string;
     }
 
-    public function buildPaginateLinks($total,$limit) {
+    public function buildPaginatePages($total,$limit) {
         static $content=null;
         if($content) {
             return $content;
@@ -407,7 +400,7 @@ class EvoContentSearch
         }
         $offset = getv('offset',0);
         $c=0;
-        $links = [];
+        $pages = [];
         unset($this->request['offset']);
         $num = !getv('offset') ? 1 : round(getv('offset')/$limit)+1;
         if($num <= 5) {
@@ -419,14 +412,14 @@ class EvoContentSearch
         // $this->config('tplPaginate.current-item'),
         while($c<10) {
             if($num==$current_num) {
-                $links[] = evo()->parsetext(
+                $pages[] = evo()->parsetext(
                     $this->config('tplPaginate.current-item'), [
                         'num' => $num
                     ]
                 );
             } else {
                 $offset = $num==1 ? 0 : $limit * ($num-1);
-                $links[] = evo()->parsetext(
+                $pages[] = evo()->parsetext(
                     $this->config('tplPaginate.linked-item'), [
                         'num' => $num,
                         'url' => $this->build_url(
@@ -445,7 +438,7 @@ class EvoContentSearch
             $num++;
             $c++;
         }
-        $content = implode("\n", $links);
+        $content = implode("\n", $pages);
         return $content;
     }
 
@@ -566,12 +559,30 @@ class EvoContentSearch
                 $summary[$next] = $_[$next];
             }
         }
+        $summary = $this->trimSummary($summary);
         return mb_substr(
-            $summary ? implode(' ', $summary) : $text,
+            ($summary ? implode(' ', $summary) : $text),
             0,
             $this->config('summaryLength')
-        );
+        ). '...';
     }
+
+    private function trimSummary($summary) {
+        // 空の要素を削除
+        $summary = array_filter($summary, function($value) {
+            return !empty($value);
+        });
+
+        // 重複する要素を削除
+        $summary = array_unique($summary);
+
+        // 一文字目が「[」の要素を削除
+        $summary = array_filter($summary, function($value) {
+            return $value[0] !== '[';
+        });
+        return $summary;
+    }
+
     public function treatedKeyword($keyword=null) {
         if (!$keyword) {
             return '';
