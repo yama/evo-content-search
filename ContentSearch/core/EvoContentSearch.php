@@ -358,7 +358,6 @@ class EvoContentSearch
      */
     private function generateRelevanceScore($keyword) {
         $escaped = db()->escape($keyword);
-        $keywordLen = mb_strlen($keyword);
 
         return sprintf("
             (
