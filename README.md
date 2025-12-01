@@ -86,3 +86,4 @@ MODX Evolution用のコンテンツ検索スニペットです。コンテンツ
 
 - スニペット本体は `ContentSearch/bootstrap.php`、処理ロジックは `ContentSearch/core/EvoContentSearch.php` にあります。
 - テーマの既定設定は `ContentSearch/themes/_default/config.php` で確認できます。開発時はここを基準に追加パラメータを定義すると、ドキュメントと実装の乖離を防げます。
+- 検索結果のスコアリングは `EvoContentSearch::generateRelevanceScore()` が担っています。旧バージョン互換用の `generateScore()` は削除済みのため、カスタマイズする場合は `generateRelevanceScore()` を編集してください。
