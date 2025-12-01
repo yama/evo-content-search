@@ -215,6 +215,12 @@ if (!function_exists('anyv')) {
 if (!function_exists('serverv')) {
     function serverv($key = null, $default = null)
     {
+        if ($key === null) {
+            return $_SERVER;
+        }
+        if (!is_string($key)) {
+            return $default;
+        }
         return array_get($_SERVER, strtoupper($key), $default);
     }
 }
@@ -222,7 +228,10 @@ if (!function_exists('serverv')) {
 if (!function_exists('sessionv')) {
     function sessionv($key = null, $default = null)
     {
-        if (strpos($key, '*') === 0) {
+        if (!is_string($key)) {
+            return $default;
+        }
+        if (str_starts_with($key, '*')) {
             return array_set($_SESSION, ltrim($key, '*'), $default);
         }
         return array_get($_SESSION, $key, $default);
@@ -239,7 +248,13 @@ if (!function_exists('filev')) {
 if (!function_exists('globalv')) {
     function globalv($key = null, $default = null)
     {
-        if (strpos($key, '*') === 0) {
+        if ($key === null) {
+            return $GLOBALS;
+        }
+        if (!is_string($key)) {
+            return $default;
+        }
+        if (str_starts_with($key, '*')) {
             return array_set($GLOBALS, ltrim($key, '*'), $default);
         }
         return array_get($GLOBALS, $key, $default);
