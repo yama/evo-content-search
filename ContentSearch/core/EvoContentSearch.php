@@ -423,14 +423,6 @@ class EvoContentSearch
         );
     }
 
-    /**
-     * 旧バージョンとの互換性のため残す（deprecated）
-     * @deprecated Use generateRelevanceScore() instead
-     */
-    private function generateScore ($keyword) {
-        return $this->generateRelevanceScore($keyword);
-    }
-
     public function buildPaginate($total,$limit,$offset) {
         if(!$this->config('paginateAlwaysShow') && $total <= $limit) {
             return null;
