@@ -358,6 +358,7 @@ class EvoContentSearch
      */
     private function generateRelevanceScore($keyword) {
         $escaped = db()->escape($keyword);
+        $escapedLike = db()->escape($this->escapeLikeWildcard($keyword));
 
         return sprintf("
             (
@@ -410,16 +411,16 @@ class EvoContentSearch
 
             ) as relevance_score
         ",
-            $escaped,  // タイトル完全一致
-            $escaped,  // タイトル先頭一致
-            $escaped,  // タイトル部分一致
-            $escaped,  // ディスクリプション
-            $escaped,  // 本文冒頭
-            $escaped,  // 短いキーワードチェック用
-            $escaped,  // 短いキーワード: タイトル
-            $escaped,  // 短いキーワード: 本文冒頭
-            $escaped,  // キーワード密度計算用
-            $escaped   // キーワード密度計算用
+            $escaped,      // タイトル完全一致
+            $escapedLike,  // タイトル先頭一致
+            $escapedLike,  // タイトル部分一致
+            $escapedLike,  // ディスクリプション
+            $escapedLike,  // 本文冒頭
+            $escaped,      // 短いキーワードチェック用
+            $escapedLike,  // 短いキーワード: タイトル
+            $escapedLike,  // 短いキーワード: 本文冒頭
+            $escaped,      // キーワード密度計算用
+            $escaped       // キーワード密度計算用
         );
     }
 
@@ -570,6 +571,8 @@ class EvoContentSearch
     }
 
     private function likeWhere($keyword) {
+        $keyword = $this->escapeLikeWildcard($keyword);
+
         $_ = explode(' ', $keyword);
         if(count($_)==1) {
             return evo()->parseText(
@@ -585,6 +588,17 @@ class EvoContentSearch
             );
         }
         return implode(' AND ', $where);
+    }
+
+    private function escapeLikeWildcard($keyword) {
+        return strtr(
+            $keyword,
+            [
+                '\\' => '\\\\',
+                '%' => '\\%',
+                '_' => '\\_'
+            ]
+        );
     }
 
     private function summary($text, $keyword) {
