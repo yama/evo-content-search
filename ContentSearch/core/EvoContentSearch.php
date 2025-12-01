@@ -282,12 +282,12 @@ class EvoContentSearch
     private function fulltextQuery($keyword) {
         $field = [
             sprintf(
-                "stext.*,content.*, MATCH (`tokens`) AGAINST (%s) as score",
+                "stext.*,content.*, MATCH (`tokens`) AGAINST (%s) as base_score",
                 $this->matchAgainst($keyword)
             )
         ];
         if($this->orderby==='rel') {
-            $field[] = $this->generateScore($keyword);
+            $field[] = $this->generateRelevanceScore($keyword);
         }
 
         return db()->select(
@@ -301,14 +301,14 @@ class EvoContentSearch
                 // "MATCH (tokens) AGAINST ('%s' IN BOOLEAN MODE)",
                 $this->matchAgainst($keyword)
             ),
-            $this->orderby==='rel' ? 'contains_title DESC, score DESC' : 'stext.publishedon DESC',
+            $this->orderby==='rel' ? 'relevance_score DESC' : 'stext.publishedon DESC',
             $this->limit($this->limit, getv('offset'))
         );
     }
     private function matchAgainst($keyword) {
         $_ = preg_split('/\s+/u', trim($keyword));
         if(count($_)==1) {
-            return sprintf("'%s*'", $keyword);
+            return sprintf("'%s*'", db()->escape($keyword));
         }
         $keywords = [];
         foreach($_ as $v) {
@@ -322,15 +322,16 @@ class EvoContentSearch
 
     private function likeQuery($keyword) {
         $keyword = trim($keyword);
+        $escapedKeyword = db()->escape($keyword);
         $field = [
             sprintf(
                 "stext.*,content.*,(LENGTH(stext.plain_text) - LENGTH(REPLACE(stext.plain_text, '%s', ''))) / LENGTH('%s') AS cnt",
-                $keyword,
-                $keyword
+                $escapedKeyword,
+                $escapedKeyword
             )
         ];
         if($this->orderby==='rel') {
-            $field[] = $this->generateScore($keyword);
+            $field[] = $this->generateRelevanceScore($keyword);
         }
         return db()->select(
             implode(',', $field), [
@@ -338,15 +339,89 @@ class EvoContentSearch
                 'LEFT JOIN ' . db()->getFullTableName('site_content') . ' content ON content.id=`stext`.doc_id'
             ],
             $this->likeWhere($keyword),
-            $this->orderby==='rel' ? 'contains_title DESC, cnt DESC' : 'stext.publishedon DESC',
+            $this->orderby==='rel' ? 'relevance_score DESC' : 'stext.publishedon DESC',
             $this->limit($this->limit, getv('offset'))
         );
     }
 
-    private function generateScore ($keyword) {
-        return evo()->parseText(
-            "CASE WHEN stext.pagetitle LIKE '%[+keyword+]%' THEN 2 ELSE 1 END as contains_title",
-            ['keyword'=>$keyword]
+    /**
+     * 高度なスコアリング式を生成
+     *
+     * 以下の要素を考慮した総合スコアを計算:
+     * - フィールド重み付け（タイトル、ディスクリプション、本文冒頭、本文）
+     * - キーワード密度
+     * - 文書の長さによる正規化
+     * - 新しさ（フレッシュネス）
+     * - 短いキーワードの誤ヒット対策
+     *
+     * @param string $keyword 検索キーワード
+     * @return string SQL式
+     */
+    private function generateRelevanceScore($keyword) {
+        $escaped = db()->escape($keyword);
+        $escapedLike = db()->escape($this->escapeLikeWildcard($keyword));
+
+        return sprintf("
+            (
+                -- ベーススコア（FULLTEXT または 出現回数）
+                COALESCE(base_score, cnt, 1.0)
+
+                -- フィールドブースト（多段階の重み付け）
+                * CASE
+                    -- タイトルに完全一致（最高優先）
+                    WHEN stext.pagetitle = '%s' THEN 20.0
+                    -- タイトルの先頭に一致
+                    WHEN stext.pagetitle LIKE '%s%%' ESCAPE '\\' THEN 15.0
+                    -- タイトルに部分一致
+                    WHEN stext.pagetitle LIKE '%%%s%%' ESCAPE '\\' THEN 8.0
+                    -- ディスクリプションに一致
+                    WHEN content.description LIKE '%%%s%%' ESCAPE '\\' THEN 4.0
+                    -- 本文の冒頭300文字以内（重要度高）
+                    WHEN SUBSTRING(stext.plain_text, 1, 300) LIKE '%%%s%%' ESCAPE '\\' THEN 2.5
+                    -- 本文のみ
+                    ELSE 1.0
+                END
+
+                -- 短いキーワード（2-3文字）の誤ヒット対策
+                * CASE
+                    WHEN CHAR_LENGTH('%s') <= 3 THEN
+                        CASE
+                            -- タイトルまたは本文冒頭にあれば信頼度高
+                            WHEN stext.pagetitle LIKE '%%%s%%' ESCAPE '\\'
+                              OR SUBSTRING(stext.plain_text, 1, 200) LIKE '%%%s%%' ESCAPE '\\'
+                            THEN 1.0
+                            -- 本文の中ほど以降は信頼度低（誤ヒットの可能性）
+                            ELSE 0.3
+                        END
+                    ELSE 1.0
+                END
+
+                -- 文書長による正規化（短い文書での一致を優遇）
+                * (1000.0 / (1000.0 + CHAR_LENGTH(stext.plain_text)))
+
+                -- キーワード密度ボーナス（適度な出現頻度を評価）
+                * (1.0 + LEAST(3.0,
+                    (CHAR_LENGTH(stext.plain_text) -
+                     CHAR_LENGTH(REPLACE(stext.plain_text, '%s', '')))
+                    / CHAR_LENGTH('%s') / 20.0
+                ))
+
+                -- フレッシュネスブースト（新しい記事を優遇）
+                -- 90日（7776000秒）ごとに半減
+                * (1.0 + 0.5 * EXP(-1.0 * (UNIX_TIMESTAMP() - stext.publishedon) / 7776000))
+
+            ) as relevance_score
+        ",
+            $escaped,      // タイトル完全一致
+            $escapedLike,  // タイトル先頭一致
+            $escapedLike,  // タイトル部分一致
+            $escapedLike,  // ディスクリプション
+            $escapedLike,  // 本文冒頭
+            $escaped,      // 短いキーワードチェック用
+            $escapedLike,  // 短いキーワード: タイトル
+            $escapedLike,  // 短いキーワード: 本文冒頭
+            $escaped,      // キーワード密度計算用
+            $escaped       // キーワード密度計算用
         );
     }
 
@@ -497,21 +572,34 @@ class EvoContentSearch
     }
 
     private function likeWhere($keyword) {
+        $keyword = $this->escapeLikeWildcard($keyword);
+
         $_ = explode(' ', $keyword);
         if(count($_)==1) {
             return evo()->parseText(
-                "plain_text LIKE CONCAT('%[+keyword+]%')",
+                "plain_text LIKE CONCAT('%[+keyword+]%') ESCAPE '\\\\'",
                 ['keyword' => db()->escape($keyword)]
             );
         }
         $where = [];
         foreach($_ as $v) {
             $where[] = evo()->parseText(
-                "plain_text LIKE CONCAT('%[+keyword+]%')",
+                "plain_text LIKE CONCAT('%[+keyword+]%') ESCAPE '\\\\'",
                 ['keyword' => db()->escape($v)]
             );
         }
         return implode(' AND ', $where);
+    }
+
+    private function escapeLikeWildcard($keyword) {
+        return strtr(
+            $keyword,
+            [
+                '\\' => '\\\\',
+                '%' => '\\%',
+                '_' => '\\_'
+            ]
+        );
     }
 
     private function summary($text, $keyword) {
