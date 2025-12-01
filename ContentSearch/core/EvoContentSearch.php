@@ -308,7 +308,7 @@ class EvoContentSearch
     private function matchAgainst($keyword) {
         $_ = preg_split('/\s+/u', trim($keyword));
         if(count($_)==1) {
-            return sprintf("'%s*'", $keyword);
+            return sprintf("'%s*'", db()->escape($keyword));
         }
         $keywords = [];
         foreach($_ as $v) {
@@ -322,11 +322,12 @@ class EvoContentSearch
 
     private function likeQuery($keyword) {
         $keyword = trim($keyword);
+        $escapedKeyword = db()->escape($keyword);
         $field = [
             sprintf(
                 "stext.*,content.*,(LENGTH(stext.plain_text) - LENGTH(REPLACE(stext.plain_text, '%s', ''))) / LENGTH('%s') AS cnt",
-                $keyword,
-                $keyword
+                $escapedKeyword,
+                $escapedKeyword
             )
         ];
         if($this->orderby==='rel') {
@@ -370,13 +371,13 @@ class EvoContentSearch
                     -- タイトルに完全一致（最高優先）
                     WHEN stext.pagetitle = '%s' THEN 20.0
                     -- タイトルの先頭に一致
-                    WHEN stext.pagetitle LIKE '%s%%' THEN 15.0
+                    WHEN stext.pagetitle LIKE '%s%%' ESCAPE '\\' THEN 15.0
                     -- タイトルに部分一致
-                    WHEN stext.pagetitle LIKE '%%%s%%' THEN 8.0
+                    WHEN stext.pagetitle LIKE '%%%s%%' ESCAPE '\\' THEN 8.0
                     -- ディスクリプションに一致
-                    WHEN content.description LIKE '%%%s%%' THEN 4.0
+                    WHEN content.description LIKE '%%%s%%' ESCAPE '\\' THEN 4.0
                     -- 本文の冒頭300文字以内（重要度高）
-                    WHEN SUBSTRING(stext.plain_text, 1, 300) LIKE '%%%s%%' THEN 2.5
+                    WHEN SUBSTRING(stext.plain_text, 1, 300) LIKE '%%%s%%' ESCAPE '\\' THEN 2.5
                     -- 本文のみ
                     ELSE 1.0
                 END
@@ -386,8 +387,8 @@ class EvoContentSearch
                     WHEN CHAR_LENGTH('%s') <= 3 THEN
                         CASE
                             -- タイトルまたは本文冒頭にあれば信頼度高
-                            WHEN stext.pagetitle LIKE '%%%s%%'
-                              OR SUBSTRING(stext.plain_text, 1, 200) LIKE '%%%s%%'
+                            WHEN stext.pagetitle LIKE '%%%s%%' ESCAPE '\\'
+                              OR SUBSTRING(stext.plain_text, 1, 200) LIKE '%%%s%%' ESCAPE '\\'
                             THEN 1.0
                             -- 本文の中ほど以降は信頼度低（誤ヒットの可能性）
                             ELSE 0.3
@@ -576,14 +577,14 @@ class EvoContentSearch
         $_ = explode(' ', $keyword);
         if(count($_)==1) {
             return evo()->parseText(
-                "plain_text LIKE CONCAT('%[+keyword+]%')",
+                "plain_text LIKE CONCAT('%[+keyword+]%') ESCAPE '\\\\'",
                 ['keyword' => db()->escape($keyword)]
             );
         }
         $where = [];
         foreach($_ as $v) {
             $where[] = evo()->parseText(
-                "plain_text LIKE CONCAT('%[+keyword+]%')",
+                "plain_text LIKE CONCAT('%[+keyword+]%') ESCAPE '\\\\'",
                 ['keyword' => db()->escape($v)]
             );
         }
