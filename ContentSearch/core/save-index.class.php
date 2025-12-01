@@ -193,78 +193,101 @@ class csIndex {
         return '';
     }
 
+    /**
+     * テキストをトークン（検索可能な単語）に分割
+     *
+     * 改善点：
+     * - デッドコードを削除
+     * - N-gram結合を廃止（インデックスサイズの削減）
+     * - ストップワードの充実
+     * - 複合語の分解処理を改善
+     *
+     * @param string $str 分割対象のテキスト
+     * @return string スペース区切りのトークン文字列
+     */
     private function split_token($str) {
-
+        // 文字種別でトークン分割
         preg_match_all(
             '/[一-龠]+|[ぁ-ん]+|[ァ-ヴー]+|[a-zA-Z0-9]+|[ａ-ｚＡ-Ｚ０-９]+/u',
             $str,
             $matches
         );
-        $match_result = $matches[0];
-        foreach($match_result as $i=>$v) {
-            if(preg_match('/ます$/u', $v)) {
-                unset($match_result[$i]);
-            }
-            if(preg_match('/です$/u', $v)) {
-                unset($match_result[$i]);
-            }
-        }
 
-        //2つの配列の結合
-        $tmp_res1 = array();
-        if(count($match_result) > 1){
-            for ($i = 0 ; $i < (count($match_result) - 1); $i++){
-                $tmp_res1[] = $match_result[$i] . $match_result[$i + 1];
-            }
-        }
-
-        //3つの配列の結合
-        $tmp_res2 = array();
-        if(count($match_result) > 2){
-            for ($i = 0 ; $i < (count($match_result) - 2); $i++){
-                $tmp_res2[] = $match_result[$i] . $match_result[$i + 1] . $match_result[$i + 2];
-            }
-        }
-
-        $match_result = array_merge($match_result, $tmp_res1, $tmp_res2);
+        $tokens = [];
         $tokenMinSize = $this->tokenMinSize();
-        foreach($match_result as $i=>$v) {
-            if(mb_strlen($v) < $tokenMinSize) {
-                unset($match_result[$i]);
+        $stopWords = $this->getStopWords();
+
+        foreach($matches[0] as $word) {
+            // 最小トークンサイズチェック
+            if(mb_strlen($word) < $tokenMinSize) {
+                continue;
+            }
+
+            // ストップワード除外
+            if(in_array($word, $stopWords, true)) {
+                continue;
+            }
+
+            // 助動詞で終わる単語を除外
+            if(preg_match('/(?:です|ます|でした|ました|である|であり)$/u', $word)) {
+                continue;
+            }
+
+            // 基本トークンとして追加
+            $tokens[] = $word;
+
+            // 複合語（漢字+ひらがな）の分解処理
+            // 例：「検索します」→「検索」と「します」に分解
+            if(preg_match('/^([一-龠]{2,})([ぁ-ん]{2,})$/u', $word, $parts)) {
+                $kanjiPart = $parts[1];    // 漢字部分
+                $hiragaPart = $parts[2];   // ひらがな部分
+
+                // 漢字部分を追加（名詞として重要）
+                if(mb_strlen($kanjiPart) >= $tokenMinSize
+                   && !in_array($kanjiPart, $stopWords, true)) {
+                    $tokens[] = $kanjiPart;
+                }
+
+                // ひらがな部分も条件付きで追加
+                if(mb_strlen($hiragaPart) >= $tokenMinSize
+                   && !in_array($hiragaPart, $stopWords, true)
+                   && !preg_match('/^[っゃゅょゎ]/u', $hiragaPart)) {
+                    $tokens[] = $hiragaPart;
+                }
             }
         }
-        return implode(' ', $match_result);
 
-        $tokenMinSize = $this->tokenMinSize();
-        $pattern = '/[一-龠]+[ぁ-ん]*|[一-龠]+|[ぁ-ん]+|[ァ-ヴー]+|[a-zA-Z0-9]+|[ａ-ｚＡ-Ｚ０-９]+/u';
-        preg_match_all($pattern, $str, $matches);
-        $token = [];
-        foreach($matches[0] as $v) {
-            if(mb_strlen($v) < $tokenMinSize) {
-                continue;
-            }
-            if(!preg_match('@です$@u', $v) && !preg_match('@ます$@u', $v)) {
-                $token[] = $v;
-            }
+        // 重複を削除して返す
+        return implode(' ', array_unique($tokens));
+    }
 
-            if(!preg_match('/^([一-龠]+)([ぁ-ん]+)/u', $v, $row)) {
-                continue;
-            }
+    /**
+     * ストップワード（検索に不要な一般的な単語）のリスト
+     *
+     * @return array ストップワードの配列
+     */
+    private function getStopWords() {
+        return [
+            // 助詞
+            'の', 'に', 'は', 'が', 'を', 'へ', 'と', 'や', 'で', 'も',
+            'から', 'まで', 'より', 'ので', 'のに', 'ばかり',
 
-            if($tokenMinSize <= mb_strlen($row[1])) {
-                $token[] = $row[1];
-            }
-            if(mb_strlen($row[2])==1) {
-                continue;
-            }
-            if(mb_strpos($row[2], 'っ')===0) {
-                continue;
-            }
-            if($tokenMinSize <= mb_strlen($row[2])) {
-                $token[] = $row[2];
-            }
-        }
-        return implode(' ', $token);
+            // 助動詞
+            'です', 'ます', 'でした', 'ました', 'である', 'であり',
+            'だった', 'でしょ', 'だろ',
+
+            // 接続詞
+            'そして', 'また', 'さらに', 'しかし', 'けれど', 'ただし',
+
+            // 一般的な動詞の活用形
+            'する', 'した', 'して', 'なる', 'なった', 'なり',
+            'ある', 'あり', 'ない', 'いる', 'おり',
+
+            // その他
+            'こと', 'もの', 'ため', 'など', 'たち', 'ら',
+            'これ', 'それ', 'あれ', 'この', 'その', 'あの',
+            'ここ', 'そこ', 'あそこ', 'どこ',
+        ];
     }
     public function tokenMinSize() {
         $rs = db()->query("SHOW VARIABLES like 'innodb_ft_min_token_size';");
