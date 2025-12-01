@@ -55,7 +55,7 @@ MODX Evolution用のコンテンツ検索スニペットです。コンテンツ
 | `keyword` | キーワードを受け取るクエリパラメータ名。 | `keyword` |
 | `basicAuth` | インデックス作成時に使用する Basic 認証情報（`user:pass`）。 | なし |
 | `returnResponse` | スニペットの戻り値を出力するかどうか。 | `true` |
-| `placeholder-key` | プレースホルダーにセットするキー名。 | `ContentSeach` |
+| `placeholder-key` | プレースホルダーにセットするキー名。 | `ContentSearch` |
 | `additionalKeywordField` | 追加でキーワード化するフィールド名。 | 空文字 |
 | `paginateAlwaysShow` | 1ページしかなくてもページネーションを表示するか。 | `false` |
 | `css` | インラインで読み込むスタイル。テーマの `template/style.css` が既定。 | テーマ依存 |
