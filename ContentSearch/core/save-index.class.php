@@ -293,9 +293,9 @@ class csIndex {
         $rs = db()->query("SHOW VARIABLES like 'innodb_ft_min_token_size';");
         $row = db()->getRow($rs);
         if(empty($row['Value'])) {
-            return false;
+            return 2; // Default minimum token size
         }
-        return $row['Value'];
+        return (int) $row['Value'];
     }
 
     private function trimText($text) {
