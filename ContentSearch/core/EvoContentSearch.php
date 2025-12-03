@@ -586,7 +586,7 @@ class EvoContentSearch
         $_ = explode(' ', $keyword);
         if(count($_)==1) {
             return sprintf(
-                "plain_text LIKE CONCAT('%%%s%%') ESCAPE '%s'",
+                "plain_text LIKE '%%%s%%' ESCAPE '%s'",
                 db()->escape($keyword),
                 $escapeChar
             );
@@ -594,7 +594,7 @@ class EvoContentSearch
         $where = [];
         foreach($_ as $v) {
             $where[] = sprintf(
-                "plain_text LIKE CONCAT('%%%s%%') ESCAPE '%s'",
+                "plain_text LIKE '%%%s%%' ESCAPE '%s'",
                 db()->escape($v),
                 $escapeChar
             );
