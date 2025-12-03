@@ -16,6 +16,7 @@ class EvoContentSearch
     private $form;
     private $orderby;
     private $paginate;
+    private $likeEscapeChar = '!';
 
     public function __construct() {
         include_once __DIR__ . '/save-index.class.php';
@@ -360,6 +361,7 @@ class EvoContentSearch
     private function generateRelevanceScore($keyword) {
         $escaped = db()->escape($keyword);
         $escapedLike = db()->escape($this->escapeLikeWildcard($keyword));
+        $escapeChar = db()->escape($this->likeEscapeChar);
 
         return sprintf("
             (
@@ -371,13 +373,13 @@ class EvoContentSearch
                     -- タイトルに完全一致（最高優先）
                     WHEN stext.pagetitle = '%s' THEN 20.0
                     -- タイトルの先頭に一致
-                    WHEN stext.pagetitle LIKE '%s%%' ESCAPE '\\' THEN 15.0
+                    WHEN stext.pagetitle LIKE '%s%%' ESCAPE '%s' THEN 15.0
                     -- タイトルに部分一致
-                    WHEN stext.pagetitle LIKE '%%%s%%' ESCAPE '\\' THEN 8.0
+                    WHEN stext.pagetitle LIKE '%%%s%%' ESCAPE '%s' THEN 8.0
                     -- ディスクリプションに一致
-                    WHEN content.description LIKE '%%%s%%' ESCAPE '\\' THEN 4.0
+                    WHEN content.description LIKE '%%%s%%' ESCAPE '%s' THEN 4.0
                     -- 本文の冒頭300文字以内（重要度高）
-                    WHEN SUBSTRING(stext.plain_text, 1, 300) LIKE '%%%s%%' ESCAPE '\\' THEN 2.5
+                    WHEN SUBSTRING(stext.plain_text, 1, 300) LIKE '%%%s%%' ESCAPE '%s' THEN 2.5
                     -- 本文のみ
                     ELSE 1.0
                 END
@@ -387,8 +389,8 @@ class EvoContentSearch
                     WHEN CHAR_LENGTH('%s') <= 3 THEN
                         CASE
                             -- タイトルまたは本文冒頭にあれば信頼度高
-                            WHEN stext.pagetitle LIKE '%%%s%%' ESCAPE '\\'
-                              OR SUBSTRING(stext.plain_text, 1, 200) LIKE '%%%s%%' ESCAPE '\\'
+                            WHEN stext.pagetitle LIKE '%%%s%%' ESCAPE '%s'
+                              OR SUBSTRING(stext.plain_text, 1, 200) LIKE '%%%s%%' ESCAPE '%s'
                             THEN 1.0
                             -- 本文の中ほど以降は信頼度低（誤ヒットの可能性）
                             ELSE 0.3
@@ -414,12 +416,18 @@ class EvoContentSearch
         ",
             $escaped,      // タイトル完全一致
             $escapedLike,  // タイトル先頭一致
+            $escapeChar,   // タイトル先頭一致: ESCAPE
             $escapedLike,  // タイトル部分一致
+            $escapeChar,   // タイトル部分一致: ESCAPE
             $escapedLike,  // ディスクリプション
+            $escapeChar,   // ディスクリプション: ESCAPE
             $escapedLike,  // 本文冒頭
+            $escapeChar,   // 本文冒頭: ESCAPE
             $escaped,      // 短いキーワードチェック用
             $escapedLike,  // 短いキーワード: タイトル
+            $escapeChar,   // 短いキーワード: タイトル ESCAPE
             $escapedLike,  // 短いキーワード: 本文冒頭
+            $escapeChar,   // 短いキーワード: 本文冒頭 ESCAPE
             $escaped,      // キーワード密度計算用
             $escaped       // キーワード密度計算用
         );
@@ -573,31 +581,37 @@ class EvoContentSearch
 
     private function likeWhere($keyword) {
         $keyword = $this->escapeLikeWildcard($keyword);
+        $escapeChar = db()->escape($this->likeEscapeChar);
 
         $_ = explode(' ', $keyword);
         if(count($_)==1) {
-            return evo()->parseText(
-                "plain_text LIKE CONCAT('%[+keyword+]%') ESCAPE '\\\\'",
-                ['keyword' => db()->escape($keyword)]
+            return sprintf(
+                "plain_text LIKE CONCAT('%%%s%%') ESCAPE '%s'",
+                db()->escape($keyword),
+                $escapeChar
             );
         }
         $where = [];
         foreach($_ as $v) {
-            $where[] = evo()->parseText(
-                "plain_text LIKE CONCAT('%[+keyword+]%') ESCAPE '\\\\'",
-                ['keyword' => db()->escape($v)]
+            $where[] = sprintf(
+                "plain_text LIKE CONCAT('%%%s%%') ESCAPE '%s'",
+                db()->escape($v),
+                $escapeChar
             );
         }
         return implode(' AND ', $where);
     }
 
     private function escapeLikeWildcard($keyword) {
+        $escapeChar = $this->likeEscapeChar;
+
         return strtr(
             $keyword,
             [
-                '\\' => '\\\\',
-                '%' => '\\%',
-                '_' => '\\_'
+                $escapeChar => $escapeChar . $escapeChar,
+                '\\' => $escapeChar . '\\',
+                '%' => $escapeChar . '%',
+                '_' => $escapeChar . '_'
             ]
         );
     }
