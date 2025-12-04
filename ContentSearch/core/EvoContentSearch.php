@@ -324,11 +324,16 @@ class EvoContentSearch
     private function likeQuery($keyword) {
         $keyword = trim($keyword);
         $escapedKeyword = db()->escape($keyword);
+        $occurrenceCountExpr = sprintf(
+            "(LENGTH(stext.plain_text) - LENGTH(REPLACE(stext.plain_text, '%s', ''))) / LENGTH('%s')",
+            $escapedKeyword,
+            $escapedKeyword
+        );
         $field = [
             sprintf(
-                "stext.*,content.*,(LENGTH(stext.plain_text) - LENGTH(REPLACE(stext.plain_text, '%s', ''))) / LENGTH('%s') AS cnt",
-                $escapedKeyword,
-                $escapedKeyword
+                "stext.*,content.*, %s AS cnt, %s AS base_score",
+                $occurrenceCountExpr,
+                $occurrenceCountExpr
             )
         ];
         if($this->orderby==='rel') {
